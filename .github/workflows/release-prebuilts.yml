@@ -41,63 +41,28 @@ jobs:
             echo "Rolling release '$TAG' already exists."
           fi
 
-  build-prebuilts:
-    name: Build prebuilts (${{ matrix.distro }})
+  build-arch:
+    name: Build Arch Linux (x86_64)
     needs: prepare-release
     runs-on: ubuntu-latest
-    container: ${{ matrix.container }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - distro: ubuntu
-            container: ~
-          - distro: fedora
-            container: fedora:latest
-          - distro: arch
-            container: archlinux:base-devel
+    container: archlinux:base-devel
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Build Dependencies (Ubuntu)
-        if: matrix.distro == 'ubuntu'
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            build-essential autoconf automake autoconf-archive libtool \
-            libfftw3-dev libasound2-dev libncursesw5-dev libpulse-dev \
-            libiniparser-dev libpipewire-0.3-dev libsndio-dev libsdl2-dev \
-            pkg-config git
-
-      - name: Install Build Dependencies (Fedora)
-        if: matrix.distro == 'fedora'
-        run: |
-          set -euo pipefail
-          dnf install -y \
-            gcc gcc-c++ automake autoconf autoconf-archive libtool make \
-            fftw3-devel alsa-lib-devel ncurses-devel pulseaudio-libs-devel \
-            iniparser-devel pipewire-devel SDL2-devel pkgconf gh git tar
-
-      - name: Install Build Dependencies (Arch)
-        if: matrix.distro == 'arch'
+      - name: Install Build Dependencies
         run: |
           set -euo pipefail
           pacman -Syu --noconfirm --needed \
             git github-cli autoconf-archive automake autoconf libtool make gcc \
             fftw ncurses alsa-lib iniparser pipewire libpulse sdl2 sndio pkgconf tar
 
-      - name: Build CAVA Executable
+      - name: Build CAVA and libcava
         run: |
           set -euo pipefail
           ./autogen.sh
           ./configure --prefix=/usr
           make -j"$(nproc)"
-
-      - name: Build libcava and Stage Artifacts
-        run: |
-          set -euo pipefail
           DESTDIR="$PWD/stage" make install
 
           # Build libcava shared and static libraries from cavacore
@@ -116,7 +81,7 @@ jobs:
             CAVA_VERSION="$(tr -d '[:space:]' < version)"
           fi
 
-          # Generate pkg-config files for libcava and cava
+          # Generate pkg-config files
           cat << 'EOF' > stage/usr/lib/pkgconfig/libcava.pc
 prefix=/usr
 exec_prefix=${prefix}
@@ -133,7 +98,82 @@ EOF
           cp stage/usr/lib/pkgconfig/libcava.pc stage/usr/lib/pkgconfig/cava.pc
 
           # Assemble dist root directory
-          mkdir -p dist/root/bin dist/root/lib dist/root/include
+          mkdir -p dist/root/bin dist/root/lib dist/root/include dist/out
+          cp -a stage/usr/bin/* dist/root/bin/
+          cp -a stage/usr/include/* dist/root/include/
+          cp -a stage/usr/lib/* dist/root/lib/
+
+          ARCH="$(uname -m)"
+          tar -C dist/root -czf "dist/out/cava-${ARCH}-arch.tar.gz" bin include lib
+          cp stage/usr/bin/cava "dist/out/cava-${ARCH}-arch"
+
+      - name: Upload Arch Prebuilts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ARCH="$(uname -m)"
+          gh release upload continuous "dist/out/cava-${ARCH}-arch.tar.gz" "dist/out/cava-${ARCH}-arch" --repo "$GITHUB_REPOSITORY" --clobber
+
+  build-fedora:
+    name: Build Fedora (x86_64)
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          set -euo pipefail
+          dnf install -y \
+            gcc gcc-c++ automake autoconf autoconf-archive libtool make \
+            fftw3-devel alsa-lib-devel ncurses-devel pulseaudio-libs-devel \
+            iniparser-devel pipewire-devel SDL2-devel pkgconf gh git tar
+
+      - name: Build CAVA and libcava
+        run: |
+          set -euo pipefail
+          ./autogen.sh
+          ./configure --prefix=/usr
+          make -j"$(nproc)"
+          DESTDIR="$PWD/stage" make install
+
+          # Build libcava shared and static libraries from cavacore
+          mkdir -p stage/usr/lib/pkgconfig stage/usr/include/cava
+          gcc -fPIC -shared -O3 cavacore.c -o stage/usr/lib/libcava.so -lfftw3 -lm
+          gcc -fPIC -c -O3 cavacore.c -o cavacore.o
+          ar rcs stage/usr/lib/libcava.a cavacore.o
+
+          # Install C/C++ development headers
+          cp cavacore.h stage/usr/include/cavacore.h
+          cp cavacore.h stage/usr/include/cava/cavacore.h
+
+          # Version info
+          CAVA_VERSION="0.10.4"
+          if [[ -f version ]]; then
+            CAVA_VERSION="$(tr -d '[:space:]' < version)"
+          fi
+
+          # Generate pkg-config files
+          cat << 'EOF' > stage/usr/lib/pkgconfig/libcava.pc
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libcava
+Description: CAVA audio visualizer core library
+Version: @CAVA_VERSION@
+Libs: -L${libdir} -lcava -lfftw3 -lm
+Cflags: -I${includedir} -I${includedir}/cava
+EOF
+          sed -i "s/@CAVA_VERSION@/${CAVA_VERSION}/g" stage/usr/lib/pkgconfig/libcava.pc
+          cp stage/usr/lib/pkgconfig/libcava.pc stage/usr/lib/pkgconfig/cava.pc
+
+          # Assemble dist root directory
+          mkdir -p dist/root/bin dist/root/lib dist/root/include dist/out
           cp -a stage/usr/bin/* dist/root/bin/
           cp -a stage/usr/include/* dist/root/include/
           cp -a stage/usr/lib/* dist/root/lib/
@@ -141,22 +181,90 @@ EOF
             cp -a stage/usr/lib64/* dist/root/lib/ || true
           fi
 
-          # Create distribution tarball
           ARCH="$(uname -m)"
-          TARBALL="cava-${ARCH}-${{ matrix.distro }}.tar.gz"
-          STANDALONE="cava-${ARCH}-${{ matrix.distro }}"
+          tar -C dist/root -czf "dist/out/cava-${ARCH}-fedora.tar.gz" bin include lib
+          cp stage/usr/bin/cava "dist/out/cava-${ARCH}-fedora"
 
-          mkdir -p dist/out
-          tar -C dist/root -czf "dist/out/${TARBALL}" bin include lib
-          cp stage/usr/bin/cava "dist/out/${STANDALONE}"
-
-          echo "TARBALL_PATH=dist/out/${TARBALL}" >> "$GITHUB_ENV"
-          echo "STANDALONE_PATH=dist/out/${STANDALONE}" >> "$GITHUB_ENV"
-
-      - name: Upload Prebuilt Assets to Rolling Release
+      - name: Upload Fedora Prebuilts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="continuous"
-          gh release upload "$TAG" "$TARBALL_PATH" "$STANDALONE_PATH" --repo "$GITHUB_REPOSITORY" --clobber
+          ARCH="$(uname -m)"
+          gh release upload continuous "dist/out/cava-${ARCH}-fedora.tar.gz" "dist/out/cava-${ARCH}-fedora" --repo "$GITHUB_REPOSITORY" --clobber
+
+  build-ubuntu:
+    name: Build Ubuntu (x86_64)
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential autoconf automake autoconf-archive libtool \
+            libfftw3-dev libasound2-dev libncursesw5-dev libpulse-dev \
+            libiniparser-dev libpipewire-0.3-dev libsndio-dev libsdl2-dev \
+            pkg-config git
+
+      - name: Build CAVA and libcava
+        run: |
+          set -euo pipefail
+          ./autogen.sh
+          ./configure --prefix=/usr
+          make -j"$(nproc)"
+          DESTDIR="$PWD/stage" make install
+
+          # Build libcava shared and static libraries from cavacore
+          mkdir -p stage/usr/lib/pkgconfig stage/usr/include/cava
+          gcc -fPIC -shared -O3 cavacore.c -o stage/usr/lib/libcava.so -lfftw3 -lm
+          gcc -fPIC -c -O3 cavacore.c -o cavacore.o
+          ar rcs stage/usr/lib/libcava.a cavacore.o
+
+          # Install C/C++ development headers
+          cp cavacore.h stage/usr/include/cavacore.h
+          cp cavacore.h stage/usr/include/cava/cavacore.h
+
+          # Version info
+          CAVA_VERSION="0.10.4"
+          if [[ -f version ]]; then
+            CAVA_VERSION="$(tr -d '[:space:]' < version)"
+          fi
+
+          # Generate pkg-config files
+          cat << 'EOF' > stage/usr/lib/pkgconfig/libcava.pc
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libcava
+Description: CAVA audio visualizer core library
+Version: @CAVA_VERSION@
+Libs: -L${libdir} -lcava -lfftw3 -lm
+Cflags: -I${includedir} -I${includedir}/cava
+EOF
+          sed -i "s/@CAVA_VERSION@/${CAVA_VERSION}/g" stage/usr/lib/pkgconfig/libcava.pc
+          cp stage/usr/lib/pkgconfig/libcava.pc stage/usr/lib/pkgconfig/cava.pc
+
+          # Assemble dist root directory
+          mkdir -p dist/root/bin dist/root/lib dist/root/include dist/out
+          cp -a stage/usr/bin/* dist/root/bin/
+          cp -a stage/usr/include/* dist/root/include/
+          cp -a stage/usr/lib/* dist/root/lib/
+
+          ARCH="$(uname -m)"
+          tar -C dist/root -czf "dist/out/cava-${ARCH}-ubuntu.tar.gz" bin include lib
+          cp stage/usr/bin/cava "dist/out/cava-${ARCH}-ubuntu"
+
+      - name: Upload Ubuntu Prebuilts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ARCH="$(uname -m)"
+          gh release upload continuous "dist/out/cava-${ARCH}-ubuntu.tar.gz" "dist/out/cava-${ARCH}-ubuntu" --repo "$GITHUB_REPOSITORY" --clobber
