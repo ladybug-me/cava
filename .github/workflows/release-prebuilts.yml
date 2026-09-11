@@ -82,18 +82,18 @@ jobs:
           fi
 
           # Generate pkg-config files
-          cat << 'EOF' > stage/usr/lib/pkgconfig/libcava.pc
-prefix=/usr
-exec_prefix=${prefix}
-libdir=${exec_prefix}/lib
-includedir=${prefix}/include
-
-Name: libcava
-Description: CAVA audio visualizer core library
-Version: @CAVA_VERSION@
-Libs: -L${libdir} -lcava -lfftw3 -lm
-Cflags: -I${includedir} -I${includedir}/cava
-EOF
+          {
+            echo 'prefix=/usr'
+            echo 'exec_prefix=${prefix}'
+            echo 'libdir=${exec_prefix}/lib'
+            echo 'includedir=${prefix}/include'
+            echo ''
+            echo 'Name: libcava'
+            echo 'Description: CAVA audio visualizer core library'
+            echo 'Version: @CAVA_VERSION@'
+            echo 'Libs: -L${libdir} -lcava -lfftw3 -lm'
+            echo 'Cflags: -I${includedir} -I${includedir}/cava'
+          } > stage/usr/lib/pkgconfig/libcava.pc
           sed -i "s/@CAVA_VERSION@/${CAVA_VERSION}/g" stage/usr/lib/pkgconfig/libcava.pc
           cp stage/usr/lib/pkgconfig/libcava.pc stage/usr/lib/pkgconfig/cava.pc
 
@@ -157,18 +157,18 @@ EOF
           fi
 
           # Generate pkg-config files
-          cat << 'EOF' > stage/usr/lib/pkgconfig/libcava.pc
-prefix=/usr
-exec_prefix=${prefix}
-libdir=${exec_prefix}/lib
-includedir=${prefix}/include
-
-Name: libcava
-Description: CAVA audio visualizer core library
-Version: @CAVA_VERSION@
-Libs: -L${libdir} -lcava -lfftw3 -lm
-Cflags: -I${includedir} -I${includedir}/cava
-EOF
+          {
+            echo 'prefix=/usr'
+            echo 'exec_prefix=${prefix}'
+            echo 'libdir=${exec_prefix}/lib'
+            echo 'includedir=${prefix}/include'
+            echo ''
+            echo 'Name: libcava'
+            echo 'Description: CAVA audio visualizer core library'
+            echo 'Version: @CAVA_VERSION@'
+            echo 'Libs: -L${libdir} -lcava -lfftw3 -lm'
+            echo 'Cflags: -I${includedir} -I${includedir}/cava'
+          } > stage/usr/lib/pkgconfig/libcava.pc
           sed -i "s/@CAVA_VERSION@/${CAVA_VERSION}/g" stage/usr/lib/pkgconfig/libcava.pc
           cp stage/usr/lib/pkgconfig/libcava.pc stage/usr/lib/pkgconfig/cava.pc
 
@@ -236,18 +236,18 @@ EOF
           fi
 
           # Generate pkg-config files
-          cat << 'EOF' > stage/usr/lib/pkgconfig/libcava.pc
-prefix=/usr
-exec_prefix=${prefix}
-libdir=${exec_prefix}/lib
-includedir=${prefix}/include
-
-Name: libcava
-Description: CAVA audio visualizer core library
-Version: @CAVA_VERSION@
-Libs: -L${libdir} -lcava -lfftw3 -lm
-Cflags: -I${includedir} -I${includedir}/cava
-EOF
+          {
+            echo 'prefix=/usr'
+            echo 'exec_prefix=${prefix}'
+            echo 'libdir=${exec_prefix}/lib'
+            echo 'includedir=${prefix}/include'
+            echo ''
+            echo 'Name: libcava'
+            echo 'Description: CAVA audio visualizer core library'
+            echo 'Version: @CAVA_VERSION@'
+            echo 'Libs: -L${libdir} -lcava -lfftw3 -lm'
+            echo 'Cflags: -I${includedir} -I${includedir}/cava'
+          } > stage/usr/lib/pkgconfig/libcava.pc
           sed -i "s/@CAVA_VERSION@/${CAVA_VERSION}/g" stage/usr/lib/pkgconfig/libcava.pc
           cp stage/usr/lib/pkgconfig/libcava.pc stage/usr/lib/pkgconfig/cava.pc
 
