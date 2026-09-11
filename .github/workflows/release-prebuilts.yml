@@ -55,75 +55,70 @@ jobs:
             arch: aarch64
             container: agners/archlinuxarm
     runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Build Dependencies
+      - name: Build CAVA and libcava in Arch Container
         run: |
-          set -euo pipefail
-          pacman -Syu --noconfirm --needed \
-            git github-cli autoconf-archive automake autoconf libtool make gcc \
-            fftw ncurses alsa-lib iniparser pipewire libpulse sdl2 sndio pkgconf tar
+          docker run --rm -v "$PWD:/workspace" -w /workspace ${{ matrix.container }} bash -c '
+            set -euo pipefail
+            pacman -Syu --noconfirm --needed \
+              autoconf-archive automake autoconf libtool make gcc \
+              fftw ncurses alsa-lib iniparser pipewire libpulse sdl2 sndio pkgconf tar
 
-      - name: Build CAVA and libcava
-        run: |
-          set -euo pipefail
-          ./autogen.sh
-          ./configure --prefix=/usr
-          make -j"$(nproc)"
-          DESTDIR="$PWD/stage" make install
+            ./autogen.sh
+            ./configure --prefix=/usr
+            make -j"$(nproc)"
+            DESTDIR="$PWD/stage" make install
 
-          # Build libcava shared and static libraries from cavacore
-          mkdir -p stage/usr/lib/pkgconfig stage/usr/include/cava
-          gcc -fPIC -shared -O3 cavacore.c -o stage/usr/lib/libcava.so -lfftw3 -lm
-          gcc -fPIC -c -O3 cavacore.c -o cavacore.o
-          ar rcs stage/usr/lib/libcava.a cavacore.o
+            # Build libcava shared and static libraries from cavacore
+            mkdir -p stage/usr/lib/pkgconfig stage/usr/include/cava
+            gcc -fPIC -shared -O3 cavacore.c -o stage/usr/lib/libcava.so -lfftw3 -lm
+            gcc -fPIC -c -O3 cavacore.c -o cavacore.o
+            ar rcs stage/usr/lib/libcava.a cavacore.o
 
-          # Install C/C++ development headers
-          cp cavacore.h stage/usr/include/cavacore.h
-          cp cavacore.h stage/usr/include/cava/cavacore.h
+            # Install C/C++ development headers
+            cp cavacore.h stage/usr/include/cavacore.h
+            cp cavacore.h stage/usr/include/cava/cavacore.h
 
-          # Version info
-          CAVA_VERSION="0.10.4"
-          if [[ -f version ]]; then
-            CAVA_VERSION="$(tr -d '[:space:]' < version)"
-          fi
+            # Version info
+            CAVA_VERSION="0.10.4"
+            if [[ -f version ]]; then
+              CAVA_VERSION="$(tr -d '\''[:space:]'\'' < version)"
+            fi
 
-          # Generate pkg-config files
-          {
-            echo 'prefix=/usr'
-            echo 'exec_prefix=${prefix}'
-            echo 'libdir=${exec_prefix}/lib'
-            echo 'includedir=${prefix}/include'
-            echo ''
-            echo 'Name: libcava'
-            echo 'Description: CAVA audio visualizer core library'
-            echo 'Version: @CAVA_VERSION@'
-            echo 'Libs: -L${libdir} -lcava -lfftw3 -lm'
-            echo 'Cflags: -I${includedir} -I${includedir}/cava'
-          } > stage/usr/lib/pkgconfig/libcava.pc
-          sed -i "s/@CAVA_VERSION@/${CAVA_VERSION}/g" stage/usr/lib/pkgconfig/libcava.pc
-          cp stage/usr/lib/pkgconfig/libcava.pc stage/usr/lib/pkgconfig/cava.pc
+            # Generate pkg-config files
+            {
+              echo "prefix=/usr"
+              echo "exec_prefix=\${prefix}"
+              echo "libdir=\${exec_prefix}/lib"
+              echo "includedir=\${prefix}/include"
+              echo ""
+              echo "Name: libcava"
+              echo "Description: CAVA audio visualizer core library"
+              echo "Version: ${CAVA_VERSION}"
+              echo "Libs: -L\${libdir} -lcava -lfftw3 -lm"
+              echo "Cflags: -I\${includedir} -I\${includedir}/cava"
+            } > stage/usr/lib/pkgconfig/libcava.pc
+            cp stage/usr/lib/pkgconfig/libcava.pc stage/usr/lib/pkgconfig/cava.pc
 
-          # Assemble dist root directory
-          mkdir -p dist/root/bin dist/root/lib dist/root/include dist/out
-          cp -a stage/usr/bin/* dist/root/bin/
-          cp -a stage/usr/include/* dist/root/include/
-          cp -a stage/usr/lib/* dist/root/lib/
+            # Assemble dist root directory
+            mkdir -p dist/root/bin dist/root/lib dist/root/include dist/out
+            cp -a stage/usr/bin/* dist/root/bin/
+            cp -a stage/usr/include/* dist/root/include/
+            cp -a stage/usr/lib/* dist/root/lib/
 
-          ARCH="${{ matrix.arch }}"
-          tar -C dist/root -czf "dist/out/cava-${ARCH}-arch.tar.gz" bin include lib
-          cp stage/usr/bin/cava "dist/out/cava-${ARCH}-arch"
+            tar -C dist/root -czf "dist/out/cava-${{ matrix.arch }}-arch.tar.gz" bin include lib
+            cp stage/usr/bin/cava "dist/out/cava-${{ matrix.arch }}-arch"
+          '
 
       - name: Upload Arch Prebuilts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ARCH="${{ matrix.arch }}"
-          gh release upload continuous "dist/out/cava-${ARCH}-arch.tar.gz" "dist/out/cava-${ARCH}-arch" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload continuous "dist/out/cava-${{ matrix.arch }}-arch.tar.gz" "dist/out/cava-${{ matrix.arch }}-arch" --repo "$GITHUB_REPOSITORY" --clobber
 
   build-fedora:
     name: Build Fedora (${{ matrix.arch }})
@@ -137,79 +132,74 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: aarch64
     runs-on: ${{ matrix.runner }}
-    container: fedora:latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Build Dependencies
+      - name: Build CAVA and libcava in Fedora Container
         run: |
-          set -euo pipefail
-          dnf install -y \
-            gcc gcc-c++ automake autoconf autoconf-archive libtool make \
-            fftw3-devel alsa-lib-devel ncurses-devel pulseaudio-libs-devel \
-            iniparser-devel pipewire-devel SDL2-devel pkgconf gh git tar
+          docker run --rm -v "$PWD:/workspace" -w /workspace fedora:latest bash -c '
+            set -euo pipefail
+            dnf install -y \
+              gcc gcc-c++ automake autoconf autoconf-archive libtool make \
+              fftw3-devel alsa-lib-devel ncurses-devel pulseaudio-libs-devel \
+              iniparser-devel pipewire-devel SDL2-devel pkgconf tar
 
-      - name: Build CAVA and libcava
-        run: |
-          set -euo pipefail
-          ./autogen.sh
-          ./configure --prefix=/usr
-          make -j"$(nproc)"
-          DESTDIR="$PWD/stage" make install
+            ./autogen.sh
+            ./configure --prefix=/usr
+            make -j"$(nproc)"
+            DESTDIR="$PWD/stage" make install
 
-          # Build libcava shared and static libraries from cavacore
-          mkdir -p stage/usr/lib/pkgconfig stage/usr/include/cava
-          gcc -fPIC -shared -O3 cavacore.c -o stage/usr/lib/libcava.so -lfftw3 -lm
-          gcc -fPIC -c -O3 cavacore.c -o cavacore.o
-          ar rcs stage/usr/lib/libcava.a cavacore.o
+            # Build libcava shared and static libraries from cavacore
+            mkdir -p stage/usr/lib/pkgconfig stage/usr/include/cava
+            gcc -fPIC -shared -O3 cavacore.c -o stage/usr/lib/libcava.so -lfftw3 -lm
+            gcc -fPIC -c -O3 cavacore.c -o cavacore.o
+            ar rcs stage/usr/lib/libcava.a cavacore.o
 
-          # Install C/C++ development headers
-          cp cavacore.h stage/usr/include/cavacore.h
-          cp cavacore.h stage/usr/include/cava/cavacore.h
+            # Install C/C++ development headers
+            cp cavacore.h stage/usr/include/cavacore.h
+            cp cavacore.h stage/usr/include/cava/cavacore.h
 
-          # Version info
-          CAVA_VERSION="0.10.4"
-          if [[ -f version ]]; then
-            CAVA_VERSION="$(tr -d '[:space:]' < version)"
-          fi
+            # Version info
+            CAVA_VERSION="0.10.4"
+            if [[ -f version ]]; then
+              CAVA_VERSION="$(tr -d '\''[:space:]'\'' < version)"
+            fi
 
-          # Generate pkg-config files
-          {
-            echo 'prefix=/usr'
-            echo 'exec_prefix=${prefix}'
-            echo 'libdir=${exec_prefix}/lib'
-            echo 'includedir=${prefix}/include'
-            echo ''
-            echo 'Name: libcava'
-            echo 'Description: CAVA audio visualizer core library'
-            echo 'Version: @CAVA_VERSION@'
-            echo 'Libs: -L${libdir} -lcava -lfftw3 -lm'
-            echo 'Cflags: -I${includedir} -I${includedir}/cava'
-          } > stage/usr/lib/pkgconfig/libcava.pc
-          sed -i "s/@CAVA_VERSION@/${CAVA_VERSION}/g" stage/usr/lib/pkgconfig/libcava.pc
-          cp stage/usr/lib/pkgconfig/libcava.pc stage/usr/lib/pkgconfig/cava.pc
+            # Generate pkg-config files
+            {
+              echo "prefix=/usr"
+              echo "exec_prefix=\${prefix}"
+              echo "libdir=\${exec_prefix}/lib"
+              echo "includedir=\${prefix}/include"
+              echo ""
+              echo "Name: libcava"
+              echo "Description: CAVA audio visualizer core library"
+              echo "Version: ${CAVA_VERSION}"
+              echo "Libs: -L\${libdir} -lcava -lfftw3 -lm"
+              echo "Cflags: -I\${includedir} -I\${includedir}/cava"
+            } > stage/usr/lib/pkgconfig/libcava.pc
+            cp stage/usr/lib/pkgconfig/libcava.pc stage/usr/lib/pkgconfig/cava.pc
 
-          # Assemble dist root directory
-          mkdir -p dist/root/bin dist/root/lib dist/root/include dist/out
-          cp -a stage/usr/bin/* dist/root/bin/
-          cp -a stage/usr/include/* dist/root/include/
-          cp -a stage/usr/lib/* dist/root/lib/
-          if [ -d stage/usr/lib64 ]; then
-            cp -a stage/usr/lib64/* dist/root/lib/ || true
-          fi
+            # Assemble dist root directory
+            mkdir -p dist/root/bin dist/root/lib dist/root/include dist/out
+            cp -a stage/usr/bin/* dist/root/bin/
+            cp -a stage/usr/include/* dist/root/include/
+            cp -a stage/usr/lib/* dist/root/lib/
+            if [ -d stage/usr/lib64 ]; then
+              cp -a stage/usr/lib64/* dist/root/lib/ || true
+            fi
 
-          ARCH="${{ matrix.arch }}"
-          tar -C dist/root -czf "dist/out/cava-${ARCH}-fedora.tar.gz" bin include lib
-          cp stage/usr/bin/cava "dist/out/cava-${ARCH}-fedora"
+            tar -C dist/root -czf "dist/out/cava-${{ matrix.arch }}-fedora.tar.gz" bin include lib
+            cp stage/usr/bin/cava "dist/out/cava-${{ matrix.arch }}-fedora"
+          '
 
       - name: Upload Fedora Prebuilts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ARCH="${{ matrix.arch }}"
-          gh release upload continuous "dist/out/cava-${ARCH}-fedora.tar.gz" "dist/out/cava-${ARCH}-fedora" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload continuous "dist/out/cava-${{ matrix.arch }}-fedora.tar.gz" "dist/out/cava-${{ matrix.arch }}-fedora" --repo "$GITHUB_REPOSITORY" --clobber
 
   build-ubuntu:
     name: Build Ubuntu (${{ matrix.arch }})
